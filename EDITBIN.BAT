@@ -1,0 +1,2 @@
+@ECHO OFF
+"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\Hostx64\x86\editbin.exe" target\x86_64-rust9x-windows-msvc\release\seshanxyz_rust9x.exe /SUBSYSTEM:CONSOLE,5.02 /OSVERSION:5.2 /RELEASE

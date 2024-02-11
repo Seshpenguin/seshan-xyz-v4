@@ -1,0 +1,11 @@
+{{#*inline "page"}}
+  <h3>Blog Posts</h3>
+  <ul>
+    {{#each posts}}
+      <li>
+        <a href="{{path}}">{{name}}</a>
+      </li>
+    {{/each}}
+  </ul>
+{{/inline}}
+{{> (lookup this "parent")}}

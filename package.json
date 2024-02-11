@@ -1,0 +1,14 @@
+{
+  "name": "seshanxyz_rust9x",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/main.rs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "editbin": ".\\EDITBIN.BAT",
+    "build": "cargo +rust9x build --release --target x86_64-rust9x-windows-msvc && npm run editbin && move target\\x86_64-rust9x-windows-msvc\\release\\seshanxyz_rust9x.exe cgi-bin",
+    "serve": "python -m http.server --bind 0.0.0.0 --bind ::0 --cgi 8000"
+  },
+  "author": "Seshan Ravikumar",
+  "license": "AGPL-3.0"
+}

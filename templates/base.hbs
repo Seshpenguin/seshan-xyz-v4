@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <!-- Rendered on {{date}}  -->
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/public/css/sakura.css" type="text/css">
+    <title>{{config.title}}</title>
+    <style>
+        footer { 
+            position: absolute; 
+            bottom: 0; 
+            z-index: 10;
+        }
+    </style>
+  </head>
+  <body>
+    <h1>{{config.header}}</h1>
+    <p>{{{config.subheader}}}</p>
+    <hr />
+    {{> page}}
+    <hr />
+    <footer>
+        <p>&copy; {{year}} {{config.copyright}}</p>
+        <p>Served by {{server_software}} running <a href="https://github.com/rust9x/rust/wiki">Rust9x</a> {{rust_ver}} <br />on {{os_info}}</p>
+    </footer>
+  </body>
+</html>
