@@ -96,6 +96,8 @@ fn render_markdown(md_name: &str, template_name: &str, request: &cgi::Request) -
      let md_path = format!("content/{}", md_name);
      match fs::read_to_string(&md_path) {
           Ok(content) => {
+               // rewrite all instances of "legacy.seshan.xyz" to "seshan.xyz"
+               let content = content.replace("legacy.seshan.xyz", "seshan.xyz");
                let mut options = Options::default();
                options.render.unsafe_ = true;
                let mdhtml = markdown_to_html(&content, &options);
@@ -141,6 +143,7 @@ cgi::cgi_main! { |request: cgi::Request| -> cgi::Response {
                     "path": format!("/blog/{}", file_name)
                }));
           }
+          blog_posts.reverse();
           render_template("blog-index.hbs", json!({ "posts": blog_posts }), &request)
      })).unwrap();
      router.insert("/blog/:post", Box::new(|params: matchit::Params| { 
