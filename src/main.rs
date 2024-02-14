@@ -1,3 +1,4 @@
+use cgi::http::HeaderValue;
 use rust_cgi as cgi;
 use matchit::Router;
 use std::env;
@@ -185,6 +186,14 @@ cgi::cgi_main! { |request: cgi::Request| -> cgi::Response {
      let full_path = request.headers().get("X-CGI-PATH-TRANSLATED").unwrap().to_str().unwrap();
      if path.contains("..") {
           return cgi::empty_response(403);
+     }
+
+     // Handle the Upgrade-Insecure-Requests header if x-cgi-server-port is 80 or x-forwarded-proto is http
+     if request.headers().get("Upgrade-Insecure-Requests").is_some() && (request.headers().get("X-CGI-SERVER-PORT").unwrap().to_str().unwrap() == "80" || request.headers().get("X-FORWARDED-PROTO").unwrap_or(&HeaderValue::from_static("https")).to_str().unwrap() == "http") {
+          let mut response = cgi::empty_response(301);
+          response.headers_mut().insert("Location", format!("https://{}", request.headers().get("Host").unwrap().to_str().unwrap()).parse().unwrap());
+          response.headers_mut().insert("Vary", "Upgrade-Insecure-Requests".parse().unwrap());
+          return response;
      }
 
      let mut router = Router::new();
