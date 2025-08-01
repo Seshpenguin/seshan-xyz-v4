@@ -1,4 +1,4 @@
-<p>Welcome to my personal website! I am a student at the University of Waterloo, and I also work on <a href="https://sineware.ca">Sineware</a>.</p>
+<p>Welcome to my personal website! I am a student at the University of Waterloo, and I also work on <a href="https://sineware.ca">Sineware</a>. I am a <a href="https://invent.kde.org/seshpenguin/">KDE Developer</a>!</p>
 <strong>Find me @</strong>
 <ul>
     <li><a rel="me" href="https://social.sineware.ca/@seshpenguin">Mastodon</a></li>

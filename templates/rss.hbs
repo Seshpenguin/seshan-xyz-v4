@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generated on {{date}} -->
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<channel>
+  <title>{{config.title}}</title>
+  <description>{{config.desc}}</description>
+  <link>{{base_url}}</link>
+  <atom:link href="{{base_url}}/feed.xml" rel="self" type="application/rss+xml" />
+  <lastBuildDate>{{rss_date}}</lastBuildDate>
+  <language>en-us</language>
+  <copyright>{{config.copyright}}</copyright>
+  <managingEditor>noreply@{{domain}}</managingEditor>
+  <webMaster>noreply@{{domain}}</webMaster>
+  <generator>SeshanXYZ v4 - {{server_software}} running Rust {{rust_ver}} on {{os_info}}</generator>
+  
+  {{#each posts}}
+  <item>
+    <title>{{this.title}}</title>
+    <description>{{this.description}}</description>
+    <link>{{../base_url}}/blog/{{this.filename}}</link>
+    <guid isPermaLink="true">{{../base_url}}/blog/{{this.filename}}</guid>
+    <pubDate>{{this.pub_date_rss}}</pubDate>
+    <content:encoded><![CDATA[{{{this.content}}}]]></content:encoded>
+  </item>
+  {{/each}}
+</channel>
+</rss>
