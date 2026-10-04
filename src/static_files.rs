@@ -1,74 +1,181 @@
+use std::fs::{self, File};
+use std::io::{self, Read, Seek, SeekFrom};
+
 use rust_cgi as cgi;
-use std::fs;
-use std::io::{Read, Seek, SeekFrom};
-use infer;
-use mime_guess;
+use rust_cgi::http::{HeaderValue, Method, header};
 
-pub fn serve_static_file(path: &str, request: &cgi::Request) -> cgi::Response {
-    // handle the partial content case (we should serve read and send only the partial data):
-    // first check if the request is HEAD, if so, we should only send the accept ranges header and an empty body
-    if request.method() == "HEAD" {
-        let content_type = mime_guess::from_path(path).first_raw().unwrap_or("application/octet-stream");
-        let mut response = cgi::empty_response(200);
-        response.headers_mut().insert("Accept-Ranges", "bytes".parse().unwrap());
-        response.headers_mut().insert("Content-Type", content_type.parse().unwrap());
-        // get the file size and insert it into the response
-        let file_size = fs::metadata(&path).unwrap().len();
-        response.headers_mut().insert("Content-Length", file_size.to_string().parse().unwrap());
-        return response;
-    } else if request.method() == "GET" && request.headers().get("Range").is_some() {
-        let range = request.headers().get("Range").unwrap().to_str().unwrap();
-        let range = range.trim_start_matches("bytes=");
-        let range: Vec<&str> = range.split("-").collect();
-        // Note the case of "bytes=0-"
-        let start = match range[0].parse::<u64>() {
-            Ok(val) => val,
-            Err(_) => 0
-        };
-        let mut end = match range[1].parse::<u64>() {
-            Ok(val) => val,
-            Err(_) => 0
-        };
-        // if the end is 0, we should serve the rest of the file from the starting byte
-        let mut f = fs::File::open(&path).unwrap();
-        f.seek(SeekFrom::Start(start)).unwrap();
+use crate::error::{Error, Result};
+use crate::request::RequestExt;
 
-        let mut buf;
-        if end == 0 {
-            buf = vec![];
-            end = f.metadata().unwrap().len();
-            f.read_to_end(&mut buf).unwrap();
-        } else {
-            buf = vec![0; end as usize - start as usize];
-            f.read_exact(&mut buf).unwrap();
-        }
+const SNIFF_LEN: u64 = 8192;
 
-        let content_type = mime_guess::from_path(path).first_raw().unwrap_or("application/octet-stream");
-        let mut response = cgi::binary_response(206, content_type, buf);
-        response.headers_mut().insert("Accept-Ranges", "bytes".parse().unwrap());
-        response.headers_mut().insert("Content-Range", format!("bytes {}-{}/{}", start, end, f.metadata().unwrap().len()).parse().unwrap());
-        return response;
+#[derive(Debug, PartialEq)]
+enum ByteRange {
+    Full,
+    Partial { start: u64, end: u64 },
+    Unsatisfiable,
+}
+
+pub fn serve(path: &str, request: &cgi::Request) -> Result<cgi::Response> {
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(Error::NotFound);
     }
-    match fs::read(&path) {
-        Ok(content) => {
-            let content_type = infer::get(&content);
-            let length = content.len();
-            match content_type {
-                None => {
-                    let mime_type = mime_guess::from_path(path).first_raw().unwrap_or("application/octet-stream");
-                    let mut response = cgi::binary_response(200, mime_type, content);
-                    response.headers_mut().insert("Accept-Ranges", "bytes".parse().unwrap());
-                    response.headers_mut().insert("Content-Length", length.to_string().parse().unwrap());
-                    return response;
-                },
-                _ => {
-                    let mut response = cgi::binary_response(200, content_type.unwrap().mime_type(), content);
-                    response.headers_mut().insert("Accept-Ranges", "bytes".parse().unwrap());
-                    response.headers_mut().insert("Content-Length", length.to_string().parse().unwrap());
-                    return response;
-                }
-            }
+    let len = metadata.len();
+    let mut file = File::open(path)?;
+
+    let (status, start, count) = match byte_range(request.header_str("Range"), len) {
+        ByteRange::Full => (200, 0, len),
+        ByteRange::Partial { start, end } => (206, start, end - start + 1),
+        ByteRange::Unsatisfiable => {
+            let mut response = cgi::empty_response(416);
+            response
+                .headers_mut()
+                .insert(header::CONTENT_RANGE, content_range(None, len));
+            return Ok(response);
         }
-        Err(_) => return cgi::empty_response(404)
+    };
+
+    let content_type = sniff_content_type(path, &mut file)?;
+    let body = if request.method() == Method::HEAD {
+        Vec::new()
+    } else {
+        read_span(&mut file, start, count)?
+    };
+
+    let mut response = cgi::binary_response(status, content_type, body);
+    let headers = response.headers_mut();
+    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    headers.insert(header::CONTENT_LENGTH, HeaderValue::from(count));
+    if status == 206 {
+        headers.insert(
+            header::CONTENT_RANGE,
+            content_range(Some((start, start + count - 1)), len),
+        );
+    }
+    Ok(response)
+}
+
+/// Only single ranges are supported; anything else is ignored and the whole file is served,
+/// which RFC 9110 permits.
+fn byte_range(header: Option<&str>, len: u64) -> ByteRange {
+    let Some((first, last)) = header
+        .and_then(|value| value.trim().strip_prefix("bytes="))
+        .and_then(|spec| spec.split_once('-'))
+    else {
+        return ByteRange::Full;
+    };
+    let (first, last) = (first.trim(), last.trim());
+
+    let (start, end) = match (first.parse::<u64>(), last.parse::<u64>()) {
+        (Ok(start), Ok(end)) if start <= end => (start, end.min(len.saturating_sub(1))),
+        (Ok(start), Err(_)) if last.is_empty() => (start, len.saturating_sub(1)),
+        (Err(_), Ok(suffix)) if first.is_empty() => {
+            if suffix == 0 {
+                return ByteRange::Unsatisfiable;
+            }
+            (len.saturating_sub(suffix), len.saturating_sub(1))
+        }
+        _ => return ByteRange::Full,
+    };
+
+    if start >= len {
+        ByteRange::Unsatisfiable
+    } else {
+        ByteRange::Partial { start, end }
+    }
+}
+
+fn content_range(span: Option<(u64, u64)>, len: u64) -> HeaderValue {
+    let value = match span {
+        Some((start, end)) => format!("bytes {start}-{end}/{len}"),
+        None => format!("bytes */{len}"),
+    };
+    HeaderValue::try_from(value).expect("formatted range is a valid header value")
+}
+
+fn sniff_content_type(path: &str, file: &mut File) -> io::Result<&'static str> {
+    let mut head = Vec::new();
+    file.by_ref().take(SNIFF_LEN).read_to_end(&mut head)?;
+    Ok(infer::get(&head)
+        .map(|kind| kind.mime_type())
+        .or_else(|| mime_guess::from_path(path).first_raw())
+        .unwrap_or("application/octet-stream"))
+}
+
+fn read_span(file: &mut File, start: u64, count: u64) -> io::Result<Vec<u8>> {
+    file.seek(SeekFrom::Start(start))?;
+    let mut buf = Vec::with_capacity(usize::try_from(count).unwrap_or_default());
+    file.take(count).read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn range(header: &str, len: u64) -> ByteRange {
+        byte_range(Some(header), len)
+    }
+
+    #[test]
+    fn closed_ranges_are_inclusive() {
+        assert_eq!(
+            range("bytes=0-99", 1000),
+            ByteRange::Partial { start: 0, end: 99 }
+        );
+        assert_eq!(
+            range("bytes=0-0", 1000),
+            ByteRange::Partial { start: 0, end: 0 }
+        );
+    }
+
+    #[test]
+    fn open_and_suffix_ranges() {
+        assert_eq!(
+            range("bytes=100-", 1000),
+            ByteRange::Partial {
+                start: 100,
+                end: 999
+            }
+        );
+        assert_eq!(
+            range("bytes=-50", 1000),
+            ByteRange::Partial {
+                start: 950,
+                end: 999
+            }
+        );
+        assert_eq!(
+            range("bytes=-5000", 1000),
+            ByteRange::Partial { start: 0, end: 999 }
+        );
+    }
+
+    #[test]
+    fn end_is_clamped_to_file_length() {
+        assert_eq!(
+            range("bytes=900-5000", 1000),
+            ByteRange::Partial {
+                start: 900,
+                end: 999
+            }
+        );
+    }
+
+    #[test]
+    fn unsatisfiable_ranges() {
+        assert_eq!(range("bytes=1000-", 1000), ByteRange::Unsatisfiable);
+        assert_eq!(range("bytes=-0", 1000), ByteRange::Unsatisfiable);
+        assert_eq!(range("bytes=0-", 0), ByteRange::Unsatisfiable);
+    }
+
+    #[test]
+    fn malformed_or_multi_ranges_serve_everything() {
+        assert_eq!(byte_range(None, 1000), ByteRange::Full);
+        assert_eq!(range("garbage", 1000), ByteRange::Full);
+        assert_eq!(range("bytes=5-1", 1000), ByteRange::Full);
+        assert_eq!(range("bytes=0-1,5-9", 1000), ByteRange::Full);
+        assert_eq!(range("items=0-1", 1000), ByteRange::Full);
     }
 }

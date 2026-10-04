@@ -5,14 +5,14 @@
   <title>{{config.title}}</title>
   <description>{{config.desc}}</description>
   <link>{{base_url}}</link>
-  <atom:link href="{{base_url}}/feed.xml" rel="self" type="application/rss+xml" />
+  <atom:link href="{{base_url}}/index.xml" rel="self" type="application/rss+xml" />
   <lastBuildDate>{{rss_date}}</lastBuildDate>
   <language>en-us</language>
   <copyright>{{config.copyright}}</copyright>
   <managingEditor>noreply@{{domain}}</managingEditor>
   <webMaster>noreply@{{domain}}</webMaster>
   <generator>SeshanXYZ v4 - {{server_software}} running Rust {{rust_ver}} on {{os_info}}</generator>
-  
+
   {{#each posts}}
   <item>
     <title>{{this.title}}</title>

@@ -10,23 +10,33 @@ The first 3 versions were:
 
 For v4, I've decided to return back to Win2k3 with a twist, Rust! This version of my website is written in Rust as a CGI executable that is served by IIS 6. Thanks to [Rust9x](https://github.com/rust9x/rust/wiki), I can compile and run modern Rust programs on versions of windows down to Windows 95! (but let's be honest, Windows Server 2003 R2 was peak).
 
-Essentially this is a CGI Executable that is able to handle routing, static file serving, and rendering some templated HTML and markdown.
+Essentially this is a CGI Executable that is able to handle routing, static file serving (with HTTP range requests), rendering some templated HTML and markdown, and an RSS feed of the old blog at `/index.xml`.
+
+| Module | What it does |
+|---|---|
+| `main.rs` | CGI entry point, route table, HTTPS upgrade redirect, `/debug` |
+| `site.rs` | Site config, Handlebars templates, markdown rendering |
+| `blog.rs` | Blog post listing and front matter parsing |
+| `rss.rs` | RSS feed |
+| `static_files.rs` | Static files, MIME sniffing, byte ranges |
+| `request.rs` / `error.rs` | Header helpers, redirects, and error → HTTP status mapping |
 
 > This should go without saying, but DON'T RUN LEGACY OS' IN PRODUCTION!! I took enough procautions (strict firewall rules, putting it being Cloudflare)
 > to feel comfortable enough running this in total isolation from everything, and the stakes are pretty low if something gets cooked (I can just tear everything down).
 
 ## Compiling
-Unfortunatley, you will need a modern Windows host to compile the CGI executable. Currently the build system is designed to output a x86_64 binary for Windows Server 2003+, however you should be able to modify it to produce a i586 or i686 compatible with Windows 95/NT 3.51+ (you will need the correct Windows SDK libraries and such installed, and modify EDITBIN.BAT to change the SUBSYTEM and OSVERISON fields).
+Unfortunatley, you will need a modern Windows host to compile the CGI executable. Currently the build system is designed to output a x86_64 binary for Windows Server 2003+, however you should be able to modify it to produce a i586 or i686 compatible with Windows 95/NT 3.51+ (you will need the correct Windows SDK libraries and such installed, and change the `/SUBSYSTEM` and `/OSVERSION` link args in .cargo/config.toml).
 
 **Requirements** (aka. how I have everything setup)
 - Visual Studio 2022 (with the "C++ Windows XP Tools for VS 2017 (v141)" component installed)
-    - Make sure the `C:\PROGRA~2\MICROS~4\Windows\v7.1A\Lib\x64` directory exists (as defined in .cargo/config.toml)
-- Rust9x (and registered as a toolchain with the name "rust9x")
+    - This provides the three XP-compatible pieces linked via `/LIBPATH` in .cargo/config.toml: the VC 14.16 runtime, the 10.0.10240 UCRT, and the v7.1A Platform SDK. Check those paths exist on your machine.
+    - `BUILD.BAT` runs the build inside a `vcvarsall x64 -vcvars_ver=14.16` environment. Without it, rustc uses the newest MSVC toolset, whose runtime imports Vista+ APIs (e.g. `InitializeCriticalSectionEx`), and the binary won't start on 2003.
+- Rust9x 1.85+ (registered as a toolchain with the name "rust9x"). `rust-version` in Cargo.toml keeps dependency upgrades compatible with it.
 - npm (to run the build steps automatically)
 - python3 (optional, if you want to quickly test CGI using python's http.server)
 
 
-You'll want to edit EDITBIN.BAT to point to your systems installed modern SDK editbin.exe file. Then run `npm run build` to compile the Rust program. Once that's done, you can try using `npm run serve` to start a Python webserver which can invoke the CGI executable (at http://localhost:8000/cgi-bin/seshanxyz_rust9x.exe/).
+Run `npm run build` (which calls `BUILD.BAT`) to compile the Rust program and copy it into `cgi-bin`, and `npm test` to run the unit tests. Once that's done, you can try using `npm run serve` to start a Python webserver which can invoke the CGI executable (at http://localhost:8000/cgi-bin/seshanxyz_rust9x.exe/).
 
 To deploy, copy the following directories to the root of your webserver:
 - cgi-bin
